@@ -1,0 +1,43 @@
+name: Independent WMM2025 verification
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/verify-wmm.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --no-audit --no-fund
+      - run: python -m pip install pygeomag==1.1.0
+      - name: Independently compare exact field coordinates
+        shell: bash
+        run: |
+          node --input-type=module -e "import {magvar} from 'magvar'; console.log(magvar(-27.820623,153.214591,0,new Date('2026-11-16T12:00:00Z')))" > /tmp/site-value
+          python - <<'PY'
+          from pygeomag import GeoMag
+          from datetime import datetime, timezone
+          from pathlib import Path
+          t=datetime(2026,11,16,tzinfo=timezone.utc)
+          start=datetime(2026,1,1,tzinfo=timezone.utc)
+          end=datetime(2027,1,1,tzinfo=timezone.utc)
+          year=2026+(t-start).total_seconds()/(end-start).total_seconds()
+          independent=GeoMag(coefficients_file='wmm/WMM_2025.COF').calculate(glat=-27.820623,glon=153.214591,alt=0,time=year).d
+          website=float(Path('/tmp/site-value').read_text().strip())
+          difference=abs(website-independent)
+          print(f'Website library: {website:.4f} degrees')
+          print(f'Independent pygeomag: {independent:.4f} degrees')
+          print(f'Difference: {difference:.4f} degrees')
+          assert difference <= 0.05, 'FAIL: calculations differ by more than 0.05 degrees'
+          assert abs(website-11.3)<=0.05, 'FAIL: differs from reported website result'
+          print('PASS: exact-location WMM2025 comparison')
+          PY
